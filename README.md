@@ -1,8 +1,6 @@
 # 1 - Introduction
 
-## 1.1 - Overview
-
-### Node.js && JavaScript
+## Node.js && JavaScript
 
 Same Language, Different Runtime: Node.js and browser JavaScript share the same language syntax, but they `**run in fundamentally different environments with different capabilities and constraints**`.
 
