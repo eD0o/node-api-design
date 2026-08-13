@@ -1,16 +1,31 @@
-# 1 - Introduction
+# 2 - Getting Started with Express
 
-## Node.js && JavaScript
+## 2.1 - Creating an Express application
 
-Same Language, Different Runtime: Node.js and browser JavaScript share the same language syntax, but they `**run in fundamentally different environments with different capabilities and constraints**`.
+First steps to create an Express app:
 
-| **Feature**        | **Browser JS**          | **Node.js**             |
-| ------------------ | ----------------------- | ----------------------- |
-| DOM Access         | ✅ Yes                  | ❌ No                   |
-| File System Access | ❌ Limited              | ✅ Full                 |
-| Global Object      | `window` / `globalThis` | `global` / `globalThis` |
-| Network Servers    | ❌ No                   | ✅ Yes                  |
-| Process Control    | ❌ No                   | ✅ Yes                  |
-| Package Management | 📦 Limited              | 📦 npm/yarn/pnpm        |
+```ts
+import express from "express";
 
-> Node.js is not a language or a framework. It's a runtime environment that allows JavaScript to run outside the browser.
+const app = express();
+
+app.get("/health", (req, res) => {
+  res.json({ message: "hello" }).status(200);
+});
+
+export { app };
+
+export default app;
+```
+
+> A /health route is a common convention used to check if a server is still running and operational, typically pinged at intervals to ensure the server's availability and responsiveness
+
+```ts
+import { app } from "./server.ts";
+
+app.listen(3000, () => {
+  console.log("server running on port: 3000");
+});
+```
+
+## 2.2 - Testing APIs with Postman
