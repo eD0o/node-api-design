@@ -25,3 +25,72 @@ PATCH → Update partially
 DELETE → Delete
 
 > Create, Read, Update, and Delete (CRUD) - representing the four primary actions that can be performed on an API.
+
+## 3.2 - Requests & Responses
+
+### Route Matching
+
+Express matches requests using the combination of:
+
+- HTTP method
+- Path
+
+`GET /cake` and `POST /cake` are different routes.
+
+If no matching route exists → `404 Not Found`.
+
+### HTTP Status Codes
+
+| Range | Meaning          |
+| ----- | ---------------- |
+| 2xx   | Success          |
+| 3xx   | Redirect / Cache |
+| 4xx   | Client error     |
+| 5xx   | Server error     |
+
+### Always Send a Response
+
+A route handler that doesn't send a response leaves the request hanging.
+
+```ts
+app.post("/cake", (req, res) => {
+  res.send("OK"); // always set some answers
+});
+```
+
+### HTTP Model
+
+HTTP follows a client → request → server → response model.
+
+The client initiates the request.
+
+For real-time/bidirectional communication, alternatives such as WebSockets can be used. Polling repeatedly makes HTTP requests for updates.
+
+### Route Order
+
+When multiple matching routes are registered, Express processes them in registration order.
+
+### Dynamic Route Parameters
+
+```ts
+app.get("/cake/:name/:id", (req, res) => {
+  res.json(req.params);
+});
+```
+
+`GET /cake/strawberry/2`
+
+```json
+{
+  "name": "strawberry",
+  "id": "2"
+}
+```
+
+Dynamic path values are available through `req.params`.
+
+### Query Parameters
+
+Query parameters can be used with any HTTP method, including POST.
+
+However, POST data is usually sent through the request body.
