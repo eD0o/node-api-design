@@ -122,7 +122,9 @@ router.delete('/:id', (req, res) => {
   res.json({ message: 'deleted habbit' })
 })
 
-router.post('/:id/complete', (req, res) => {
+router.post('/:id/complete', (req, res) => {''
   res.json({ message: 'completed habbit' }).status
 })
 ```
+
+## 3.4 - use middleware
