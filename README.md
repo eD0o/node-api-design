@@ -128,3 +128,64 @@ router.post('/:id/complete', (req, res) => {''
 ```
 
 ## 3.4 - use middleware
+
+- `app.use()` registers a **middleware** in Express.
+- Middleware is a function executed **between the request and the response**.
+
+```ts
+app.use((req, res, next) => {
+  console.log('Request received')
+  next()
+})
+```
+
+### `next()`
+
+`next()` passes the request to the **next middleware or route handler**.
+
+```text
+Request
+   ↓
+Middleware
+   ↓ next()
+Middleware
+   ↓ next()
+Route Handler
+   ↓
+Response
+```
+
+If a middleware doesn't call `next()` or send a response (`res.send()`, `res.json()`, etc.), the request stops there.
+
+### Path-specific Middleware
+
+```ts
+app.use('/users', middleware)
+```
+
+The middleware runs for paths starting with `/users`:
+
+```text
+/users       ✅
+/users/123   ✅
+/products    ❌
+```
+
+### Using with `Router`
+
+`use()` can also delegate a group of routes to a `Router`:
+
+```ts
+app.use('/users', userRouter)
+app.use('/products', productRouter)
+```
+
+```text
+GET /users/123
+       ↓
+app.use('/users', userRouter)
+                       ↓
+              router.get('/:id')
+```
+
+> **Mental model:** `app.use()` = **"Add this middleware or router to the request processing flow."**
