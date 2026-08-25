@@ -312,3 +312,165 @@ Useful global middleware includes:
 - authentication
 - security
 - request parsing
+
+## 4.3 - `next()`
+
+In Express, `next()` tells Express to **continue processing the current request**.
+
+```text
+Request
+  ↓
+Middleware
+  ↓ next()
+Next middleware / route handler
+```
+
+If a middleware does not send a response, throw an error, or call `next()`, the request can stay **hanging**.
+
+```ts
+const logger = (req, res, next) => {
+  console.log(req.method);
+
+  next();
+};
+```
+
+This middleware only observes the request, so it always continues.
+
+### Go / No-Go Middleware
+
+A common pattern is checking whether the request is allowed to continue.
+
+```ts
+const authenticate = (req, res, next) => {
+  const token = req.headers.authorization;
+
+  if (!token) {
+    return res.status(401).json({
+      error: "Unauthorized",
+    });
+  }
+
+  next();
+};
+```
+
+Flow:
+
+```text
+        authenticate
+             ↓
+        token exists?
+         /        \
+       yes         no
+        ↓           ↓
+     next()     401 response
+        ↓
+    continue
+```
+
+This pattern is common for:
+
+- authentication
+- authorization
+- validation
+- permissions
+- account checks
+
+### `next()` vs Response
+
+| Action                      | Meaning                         |
+| --------------------------- | ------------------------------- |
+| `next()`                    | Continue to the next middleware |
+| `res.json()` / `res.send()` | Send a response                 |
+| `next(error)`               | Go to error handling            |
+| Nothing                     | Request may hang                |
+
+### Always `return` After an Early Response
+
+`res.json()` sends the HTTP response, but it does **not stop JavaScript execution**.
+
+Bad:
+
+```ts
+if (!req.user) {
+  res.status(401).json({ error: "Unauthorized" });
+}
+
+next();
+```
+
+The code can still reach `next()` after the response was already sent.
+
+Better:
+
+```ts
+if (!req.user) {
+  return res.status(401).json({
+    error: "Unauthorized",
+  });
+}
+
+next();
+```
+
+Think of it as:
+
+```text
+res.json() → finishes the HTTP response
+return     → finishes the function
+```
+
+### Passing Data Forward
+
+Do not pass normal data through `next()`.
+
+Instead, add it to `req`:
+
+```ts
+const authenticate = (req, res, next) => {
+  req.user = {
+    id: 1,
+    name: "Scott",
+  };
+
+  next();
+};
+```
+
+Then another handler can use it:
+
+```ts
+app.get("/profile", authenticate, (req, res) => {
+  res.json(req.user);
+});
+```
+
+### `next(error)`
+
+Anything passed to `next(...)` is treated as an error.
+
+```ts
+next(error);
+```
+
+Flow:
+
+```text
+Middleware
+   ↓
+next(error)
+   ↓
+skip normal middleware
+   ↓
+Error Handler
+```
+
+So:
+
+```text
+next()       → continue normally
+next(error)  → error handling
+```
+
+> **If the middleware does not finish the request, it must pass control forward.**
