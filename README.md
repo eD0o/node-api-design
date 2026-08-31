@@ -474,3 +474,34 @@ next(error)  → error handling
 ```
 
 > **If the middleware does not finish the request, it must pass control forward.**
+
+## 4.4 - Global Middleware in Express
+
+A **global middleware** is registered directly on the Express `app` and can run for requests across the whole application.
+
+```ts
+app.use(helmet());
+app.use(cors());
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+
+app.use(
+  morgan("dev", {
+    skip: () => isTest(),
+  }),
+);
+```
+
+These are global because they are not limited to a specific route.
+
+A middleware can also be limited to a path:
+
+```ts
+app.use("/api/auth", authMiddleware);
+```
+
+In this case, it only runs for requests starting with `/api/auth`.
+
+## 4.5 - Validation Middleware
+
+
