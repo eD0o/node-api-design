@@ -504,4 +504,57 @@ In this case, it only runs for requests starting with `/api/auth`.
 
 ## 4.5 - Validation Middleware
 
+Validation middleware checks incoming data before the request reaches the route handler.
 
+In this example, Zod is used to validate req.body.
+
+```ts
+// middleware/validation.ts
+import type { Request, Response, NextFunction } from "express";
+import { type ZodType, ZodError } from "zod";
+
+export const validateBody = (schema: ZodType) => {
+  return (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const validateData = schema.parse(req.body);
+      req.body = validateData;
+      next();
+    } catch (e) {
+      if (e instanceof ZodError) {
+        return res.status(400).json({
+          error: "Validation failed",
+          details: e.issues.map((err) => ({
+            field: err.path.join("."),
+            message: err.message,
+          })),
+        });
+      }
+      next(e);
+    }
+  };
+};
+```
+
+The important part is that validateBody() is a function that receives a schema and returns a middleware.
+
+```ts
+// routes/habitRoutes.ts
+
+import { Router } from "express";
+import { validateBody } from "../middleware/validation.ts";
+import { z } from 'zod';
+
+const createHabitSchema = z.object({
+  name: z.string()
+})
+
+const router = Router()
+
+router.post('/', validateBody(createHabitSchema), (req, res) => {
+  res.json({ message: 'created habbit' }).status(201)
+})
+```
+
+Zod does more than just check the body. It returns the validated version of the data.
+
+This is useful because the route can now work with data that has already been checked..
