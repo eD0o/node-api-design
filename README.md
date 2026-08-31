@@ -542,19 +542,90 @@ The important part is that validateBody() is a function that receives a schema a
 
 import { Router } from "express";
 import { validateBody } from "../middleware/validation.ts";
-import { z } from 'zod';
+import { z } from "zod";
 
 const createHabitSchema = z.object({
-  name: z.string()
-})
+  name: z.string(),
+});
 
-const router = Router()
+const router = Router();
 
-router.post('/', validateBody(createHabitSchema), (req, res) => {
-  res.json({ message: 'created habbit' }).status(201)
-})
+router.post("/", validateBody(createHabitSchema), (req, res) => {
+  res.json({ message: "created habbit" }).status(201);
+});
 ```
 
 Zod does more than just check the body. It returns the validated version of the data.
 
-This is useful because the route can now work with data that has already been checked..
+This is useful because the route can now work with data that has already been checked.
+
+## 4.6 - Parameter & Query Validators
+
+URL parameters and query parameters also need validation.
+
+```ts
+export const validateParams = (schema: ZodType) => {
+  return (req: Request, res: Response, next: NextFunction) => {
+    try {
+      schema.parse(req.params);
+      next();
+    } catch (e) {
+      if (e instanceof ZodError) {
+        return res.status(400).json({
+          error: "Invalid params",
+          details: e.issues.map((err) => ({
+            field: err.path.join("."),
+            message: err.message,
+          })),
+        });
+      }
+      next(e);
+    }
+  };
+};
+```
+
+> Parameters in a URL are always strings, regardless of what data type they represent
+
+```ts
+export const validateQuery = (schema: ZodType) => {
+  return (req: Request, res: Response, next: NextFunction) => {
+    try {
+      schema.parse(req.query);
+      next();
+    } catch (e) {
+      if (e instanceof ZodError) {
+        return res.status(400).json({
+          error: "Invalid query params",
+          details: e.issues.map((err) => ({
+            field: err.path.join("."),
+            message: err.message,
+          })),
+        });
+      }
+      next(e);
+    }
+  };
+};
+```
+
+Query parameters come after ? in the URL.
+
+`GET /api/habits?completed=true&page=2`
+
+Then validateQuery() does the same thing as validateParams(), but validates schema.parse(req.query).
+
+```ts
+const completeParamsSchema = z.object({
+  id: z.string().max(3),
+});
+
+router.post(
+  "/:id/complete",
+  validateParams(completeParamsSchema),
+  validateBody(createHabitSchema),
+  (req, res) => {
+    res.json({ message: "completed habbit" }).status;
+  },
+);
+```
