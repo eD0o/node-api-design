@@ -632,3 +632,89 @@ router.post(
 
 ## 4.7 - Async Middleware Wrapper
 
+Async middleware often works with databases, APIs, or other operations that can fail.
+
+Without a wrapper, you may need to repeat `try/catch` in every async middleware:
+
+```ts
+try {
+  // async work
+} catch (error) {
+  next(error);
+}
+```
+
+A reusable wrapper can handle this automatically.
+
+```ts
+// Wrapper to handle async errors
+const asyncHandler = (fn) => (req, res, next) => {
+  Promise.resolve(fn(req, res, next)).catch(next);
+};
+```
+
+### How it works
+
+`asyncHandler` receives a middleware function and runs it inside `Promise.resolve()`.
+
+If the middleware throws an error or a Promise is rejected:
+
+```ts
+.catch(next)
+```
+
+forwards the error to Express error-handling middleware.
+
+This avoids repeating error-handling logic in every async middleware.
+
+### Example
+
+```ts
+const fetchUser = async (req, res, next) => {
+  const user = await db.query("SELECT * FROM users WHERE id = ?", [
+    req.params.id,
+  ]);
+
+  req.user = user;
+  next();
+};
+
+app.get("/users/:id", asyncHandler(fetchUser), getUser);
+```
+
+Request flow:
+
+```text
+GET /users/:id
+      ↓
+asyncHandler(fetchUser)
+      ↓
+fetch user from database
+      ↓
+req.user = user
+      ↓
+next()
+      ↓
+getUser
+```
+
+If the database query fails:
+
+```text
+Database error
+      ↓
+Promise rejection
+      ↓
+.catch(next)
+      ↓
+Express error handler
+```
+
+### Why use it?
+
+- Avoids repeated `try/catch`
+- Keeps middleware cleaner
+- Centralizes async error forwarding
+- Makes errors reach Express error-handling middleware automatically
+
+> `asyncHandler` handles errors, but the wrapped middleware still needs to call `next()` when it wants the request to continue.
