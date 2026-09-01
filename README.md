@@ -106,3 +106,49 @@ User 1 ──────── * Habits
 ```
 
 One user can have many habits, while each habit belongs to one user.
+
+## 5.2 - PostgreSQL & ORMs
+
+PostgreSQL works very well with Node.js and has a strong ecosystem of database tools and ORMs.
+
+Some useful PostgreSQL features include:
+
+- JSON and array types
+- Custom data types
+- Full-text search
+- Geospatial data support
+- Complex queries
+- Open-source licensing
+
+### What is an ORM?
+
+**ORM** stands for **Object-Relational Mapping**.
+
+An ORM provides an API for interacting with a relational database from application code.
+
+Without an ORM, you might write SQL directly:
+
+```ts
+const result = await db.query("SELECT * FROM users WHERE id = $1", [userId]);
+```
+
+With an ORM, the same operation can be expressed through a typed API:
+
+```ts
+const user = await db.select().from(users).where(eq(users.id, userId));
+```
+
+> ORMs reduce SQL injection risk by encouraging parameterized queries, but they do not eliminate the risk if you use raw or dynamically constructed SQL unsafely.
+
+### Why use an ORM?
+
+ORMs can provide:
+
+- Type-safe database queries
+- Better TypeScript integration
+- Easier schema management
+- Less repetitive SQL
+- Safer parameterized queries
+- Better developer experience
+
+An ORM does not replace SQL knowledge, but it makes common database operations easier to write and maintain.
