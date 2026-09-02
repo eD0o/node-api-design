@@ -48,8 +48,7 @@ A **primary key** uniquely identifies a row in a table.
 users
 
 id | name
----|------
-1  | John
+---|---  | John
 2  | Jane
 ```
 
@@ -67,15 +66,13 @@ A **foreign key** references the primary key of another table.
 users
 
 id | name
----|------
-1  | John
+---|---  | John
 
 
 habits
 
 id | user_id | name
----|---------|------
-1  | 1       | Run
+---|---------|---  | 1       | Run
 2  | 1       | Read
 ```
 
@@ -673,8 +670,7 @@ Example:
 habitTags
 
 habit_id   tag_id
-------------------
-habit-1    tag-A
+---------------abit-1    tag-A
 habit-1    tag-B
 habit-1    tag-C
 habit-2    tag-A
@@ -712,14 +708,392 @@ habitTags
 tags
 ```
 
-The key ideas are:
+## 5.5 - Establishing Table Relationships
+
+After defining the tables and Foreign Keys, we can tell Drizzle how those tables are related at the ORM level.
+
+The `relations()` helper creates relational fields that make it easier to query related data.
+
+```ts
+// Relations
+
+export const usersRelations = relations(users, ({ many }) => ({
+  habits: many(habits),
+}));
+
+export const habitsRelations = relations(habits, ({ one, many }) => ({
+  user: one(users, {
+    fields: [habits.userId],
+    references: [users.id],
+  }),
+
+  entries: many(entries),
+  habitTags: many(habitTags),
+}));
+
+export const entriesRelations = relations(entries, ({ one }) => ({
+  habit: one(habits, {
+    fields: [entries.habitId],
+    references: [habits.id],
+  }),
+}));
+
+export const tagsRelations = relations(tags, ({ many }) => ({
+  habitTags: many(habitTags),
+}));
+
+export const habitTagsRelations = relations(habitTags, ({ one }) => ({
+  habit: one(habits, {
+    fields: [habitTags.habitId],
+    references: [habits.id],
+  }),
+
+  tag: one(tags, {
+    fields: [habitTags.tagId],
+    references: [tags.id],
+  }),
+}));
+```
+
+> Make sure the property name used here matches the table definition. If your schema uses `tagID`, use `habitTags.tagID`; if it uses `tagId`, use `habitTags.tagId`.
+
+### Why Do We Need `relations()`?
+
+The Foreign Keys from the previous section define relationships at the **database level**:
+
+```ts
+userId: uuid("user_id").references(() => users.id);
+```
+
+This tells PostgreSQL:
 
 ```text
-pgTable()        → defines a database table
-primaryKey()     → uniquely identifies a row
-unique()         → prevents duplicate values and creates a fast lookup path
-references()     → creates a Foreign Key
-notNull()        → requires a value
-onDelete:cascade → deletes dependent records with their parent
-habitTags        → represents the many-to-many Habit ↔ Tag relationship
+habits.user_id → users.id
+```
+
+But it does not automatically create convenient relational fields such as:
+
+```ts
+habit.user;
+user.habits;
+entry.habit;
+```
+
+That is what `relations()` is for.
+
+```text
+Foreign Key
+    ↓
+Defines database integrity
+
+relations()
+    ↓
+Defines how Drizzle exposes related data
+```
+
+For example:
+
+```ts
+export const usersRelations = relations(users, ({ many }) => ({
+  habits: many(habits),
+}));
+```
+
+tells Drizzle that a user can have many habits.
+
+Conceptually:
+
+```ts
+user.habits;
+```
+
+can represent all habits that belong to that user.
+
+### `one()` and `many()`
+
+Drizzle provides helpers that describe each side of a relationship.
+
+```ts
+one(...)
+many(...)
+```
+
+#### One User → Many Habits
+
+```ts
+export const usersRelations = relations(users, ({ many }) => ({
+  habits: many(habits),
+}));
+```
+
+An user can have many habits:
+
+```text
+User
+ ├── Habit A
+ ├── Habit B
+ └── Habit C
+```
+
+On the other side:
+
+```ts
+export const habitsRelations = relations(habits, ({ one }) => ({
+  user: one(users, {
+    fields: [habits.userId],
+    references: [users.id],
+  }),
+}));
+```
+
+each habit belongs to one user.
+
+So the full relationship is:
+
+```text
+User 1 ─────── N Habits
+```
+
+### `fields` and `references`
+
+For a `one()` relationship, Drizzle needs to know which columns connect the tables.
+
+```ts
+user: one(users, {
+  fields: [habits.userId],
+  references: [users.id],
+});
+```
+
+This means:
+
+```text
+fields      → column on the current table
+references  → column on the related table
+```
+
+So:
+
+```text
+habits.userId
+      │
+      └──────────→ users.id
+```
+
+The same pattern is used for entries:
+
+```ts
+habit: one(habits, {
+  fields: [entries.habitId],
+  references: [habits.id],
+});
+```
+
+which represents:
+
+```text
+entries.habitId → habits.id
+```
+
+### Habit → Entries
+
+A habit can have many entries:
+
+```ts
+entries: many(entries);
+```
+
+while every entry belongs to one habit:
+
+```ts
+habit: one(habits, {
+  fields: [entries.habitId],
+  references: [habits.id],
+});
+```
+
+So:
+
+```text
+Habit 1 ─────── N Entries
+```
+
+Conceptually, Drizzle can expose:
+
+```ts
+habit.entries;
+entry.habit;
+```
+
+### Many-to-Many: Habits and Tags
+
+A habit can have many tags, and a tag can belong to many habits:
+
+```text
+Habits N ─────── N Tags
+```
+
+Instead of connecting them directly, we use the `habitTags` join table:
+
+```text
+Habits
+   │
+   │ 1:N
+   ▼
+habitTags
+   ▲
+   │ N:1
+   │
+ Tags
+```
+
+From the habit side:
+
+```ts
+habitTags: many(habitTags);
+```
+
+From the tag side:
+
+```ts
+habitTags: many(habitTags);
+```
+
+Each row inside `habitTags`, however, points to exactly one habit and one tag:
+
+```ts
+export const habitTagsRelations = relations(habitTags, ({ one }) => ({
+  habit: one(habits, {
+    fields: [habitTags.habitId],
+    references: [habits.id],
+  }),
+
+  tag: one(tags, {
+    fields: [habitTags.tagId],
+    references: [tags.id],
+  }),
+}));
+```
+
+Example:
+
+```text
+habitTags
+
+habit_id   tag_id
+habit-1    tag-A
+habit-1    tag-B
+habit-2    tag-A
+```
+
+This allows:
+
+```text
+Habit 1 → Tag A, Tag B
+Tag A   → Habit 1, Habit 2
+```
+
+The join table converts the many-to-many relationship into two simpler relationships.
+
+### Relations Are Not New Database Columns
+
+When we write:
+
+```ts
+user: one(users, ...)
+```
+
+there is no real `user` column inside the `habits` table.
+
+The real stored column is still:
+
+```text
+user_id
+```
+
+The `user` relation is an ORM-level field that Drizzle knows how to populate from the relationship.
+
+```text
+Database column:
+habits.user_id
+
+Drizzle relation:
+habit.user
+```
+
+The same applies to:
+
+```text
+user.habits
+habit.entries
+entry.habit
+tag.habitTags
+```
+
+They describe related data rather than new physical columns.
+
+### Be Careful with Relationship Fields
+
+Drizzle can verify that you are using valid table columns, but it cannot always know whether you selected the **correct logical column** for the relationship.
+
+For example, this structure:
+
+```ts
+one(users, {
+  fields: [...],
+  references: [...],
+})
+```
+
+must correctly match the Foreign Key relationship you designed.
+
+A wrong but valid column can lead to confusing query behavior.
+
+So always verify:
+
+```text
+fields      → Foreign Key on the current table
+references  → referenced key on the related table
+```
+
+### Relationship Overview
+
+```text
+users
+  │
+  │ 1:N
+  ▼
+habits
+  │
+  ├──────── 1:N ────────► entries
+  │
+  └──────── 1:N
+             ▼
+         habitTags
+             ▲
+             │ N:1
+             │
+            tags
+```
+
+Or, from the application perspective:
+
+```text
+User
+ └── many Habits
+
+Habit
+ ├── one User
+ ├── many Entries
+ └── many HabitTag records
+
+Entry
+ └── one Habit
+
+Tag
+ └── many HabitTag records
+
+HabitTag
+ ├── one Habit
+ └── one Tag
 ```

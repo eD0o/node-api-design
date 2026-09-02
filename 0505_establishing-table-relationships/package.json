@@ -1,0 +1,9 @@
+{
+  "type": "module",
+  "scripts": {
+    "dev": "node --watch src/index.ts"
+  },
+  "devDependencies": {
+    "@types/morgan": "^1.9.10"
+  }
+}
