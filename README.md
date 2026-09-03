@@ -1403,3 +1403,154 @@ Missing Timestamps
 Destructive Migrations
 → can break existing application code or lose data
 ```
+
+## 5.8 - Hosted PostgreSQL with Neon
+
+Instead of running PostgreSQL locally, we can use a hosted service such as **Neon**: https://neon.new/.
+
+Neon provides a managed PostgreSQL database, so we only need its connection URL.
+
+### Database URL
+
+After creating the database, copy the connection string into `.env`:
+
+```env
+DATABASE_URL=postgresql://...
+```
+
+This value is then accessed through:
+
+```ts
+env.DATABASE_URL;
+```
+
+```text
+Application
+    ↓
+DATABASE_URL
+    ↓
+Neon
+    ↓
+PostgreSQL
+```
+
+### Creating the Database Connection
+
+Create a `connection.ts` file:
+
+```ts
+import { drizzle } from "drizzle-orm/node-postgres";
+import { Pool } from "pg";
+import * as schema from "./schema.ts";
+import { env, isProd } from "../../env.ts";
+import { remember } from "@epic-web/remember";
+
+const createPool = () => {
+  return new Pool({
+    connectionString: env.DATABASE_URL,
+  });
+};
+
+let client;
+
+if (isProd()) {
+  client = createPool();
+} else {
+  client = remember("dbPool", () => createPool());
+}
+
+export const db = drizzle({ client, schema });
+export default db;
+```
+
+### Connection Pooling
+
+Creating a new database connection for every request is expensive.
+
+Instead, we use a **connection pool**:
+
+```ts
+new Pool({
+  connectionString: env.DATABASE_URL,
+});
+```
+
+A pool keeps database connections available so they can be reused across requests.
+
+```text
+Request 1 ─┐
+Request 2 ─┼──→ Connection Pool ──→ PostgreSQL
+Request 3 ─┘
+```
+
+This is more efficient than opening a new connection every time.
+
+### Development and `remember()`
+
+During development, tools such as Node watch can restart the application whenever files change.
+
+Without care, each restart could create another pool while the previous one is still open.
+
+```text
+reload
+→ new pool
+
+reload
+→ another pool
+
+reload
+→ another pool
+```
+
+Eventually, the database could reach its connection limit.
+
+To avoid this, the code uses:
+
+```ts
+remember("dbPool", () => createPool());
+```
+
+`remember()` keeps and reuses the same pool during development.
+
+Conceptually, it works like a **singleton**:
+
+```text
+First reload
+→ create pool
+
+Next reload
+→ reuse existing pool
+```
+
+In production, hot reloading is not a concern, so we simply create the pool:
+
+```ts
+if (isProd()) {
+  client = createPool();
+}
+```
+
+### Connecting Drizzle
+
+Finally, Drizzle receives the PostgreSQL client and the database schema:
+
+```ts
+export const db = drizzle({
+  client,
+  schema,
+});
+```
+
+This gives us the `db` object that we will use to query the database.
+
+```text
+Neon PostgreSQL
+      ↑
+     Pool
+      ↑
+   Drizzle
+      ↑
+     db
+      ↑
+Application
+```
