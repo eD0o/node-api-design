@@ -1224,3 +1224,5 @@ createSelectSchema()
 ```
 
 The main benefit is that the **database table becomes the source of truth**, reducing duplicated types and validation schemas.
+
+## 5.7 - Schema Best Practices
