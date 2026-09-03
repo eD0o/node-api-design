@@ -1097,3 +1097,130 @@ HabitTag
  ├── one Habit
  └── one Tag
 ```
+
+## 5.6 - Exporting Database Types & Schemas
+
+After defining the tables, we can reuse them to generate **TypeScript types** and **Zod schemas**.
+
+```ts
+import { createInsertSchema, createSelectSchema } from "drizzle-zod";
+
+export type User = typeof users.$inferSelect;
+export type Habit = typeof habits.$inferSelect;
+export type Entry = typeof entries.$inferSelect;
+export type Tag = typeof tags.$inferSelect;
+export type HabitTag = typeof habitTags.$inferSelect;
+
+export const insertUserSchema = createInsertSchema(users);
+export const selectUserSchema = createSelectSchema(users);
+```
+
+### Inferring Types
+
+```ts
+export type User = typeof users.$inferSelect;
+```
+
+`$inferSelect` creates a TypeScript type based on the shape of a row returned from the `users` table.
+
+So instead of manually writing:
+
+```ts
+type User = {
+  id: string;
+  email: string;
+  username: string;
+  // ...
+};
+```
+
+Drizzle infers it from the table definition.
+
+```text
+Drizzle Table
+     ↓
+$inferSelect
+     ↓
+TypeScript Type
+```
+
+The same applies to the other tables:
+
+```ts
+export type Habit = typeof habits.$inferSelect;
+export type Entry = typeof entries.$inferSelect;
+export type Tag = typeof tags.$inferSelect;
+export type HabitTag = typeof habitTags.$inferSelect;
+```
+
+This keeps the types synchronized with the database schema.
+
+### Insert Schema
+
+```ts
+export const insertUserSchema = createInsertSchema(users);
+```
+
+`createInsertSchema()` creates a Zod schema for data being inserted into the table.
+
+For example, when creating a user, fields with database defaults such as:
+
+```ts
+id;
+createdAt;
+updatedAt;
+```
+
+do not need to be manually provided.
+
+The schema can then validate incoming data at runtime.
+
+```ts
+insertUserSchema.parse(req.body);
+```
+
+### Select Schema
+
+```ts
+export const selectUserSchema = createSelectSchema(users);
+```
+
+`createSelectSchema()` creates a Zod schema representing a complete row returned from the database.
+
+A selected user includes fields such as:
+
+```text
+id
+email
+username
+password
+firstName
+lastName
+createdAt
+updatedAt
+```
+
+So:
+
+```text
+createInsertSchema()
+→ validates data used to create a row
+
+createSelectSchema()
+→ validates data returned from a row
+```
+
+### TypeScript vs Zod
+
+```text
+$inferSelect
+→ TypeScript type
+→ compile-time safety
+
+createInsertSchema()
+createSelectSchema()
+→ Zod schemas
+→ runtime validation
+```
+
+The main benefit is that the **database table becomes the source of truth**, reducing duplicated types and validation schemas.
