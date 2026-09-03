@@ -1554,3 +1554,138 @@ Neon PostgreSQL
       ↑
 Application
 ```
+
+## 5.9 - Database Scripts
+
+Database scripts give us simple commands for managing the database from `package.json`.
+
+Drizzle provides a CLI called **Drizzle Kit**, which handles tasks such as generating migrations, pushing schema changes, running migrations, and opening Drizzle Studio.
+
+```json
+{
+  "scripts": {
+    "db:generate": "drizzle-kit generate",
+    "db:push": "drizzle-kit push",
+    "db:migrate": "drizzle-kit migrate",
+    "db:studio": "drizzle-kit studio",
+    "db:seed": "node src/db/seed.ts"
+  }
+}
+```
+
+### Main Commands
+
+```text
+db:generate
+→ generates SQL migration files from schema changes
+
+db:push
+→ pushes the current schema directly to the database
+
+db:migrate
+→ runs saved migration files
+
+db:studio
+→ opens Drizzle Studio to inspect the database
+
+db:seed
+→ runs our custom seed file
+```
+
+### `db:push` vs `db:migrate`
+
+During development, `db:push` is useful because it directly synchronizes the database with the current Drizzle schema.
+
+```bash
+npm run db:push
+```
+
+Conceptually:
+
+```text
+schema.ts
+   ↓
+db:push
+   ↓
+Development Database
+```
+
+For production, migrations are safer:
+
+```text
+schema change
+    ↓
+db:generate
+    ↓
+migration file
+    ↓
+db:migrate
+    ↓
+Production Database
+```
+
+This gives us a controlled history of database changes.
+
+### Initial Database Sync
+
+For a new development database with no tables yet, we can simply run:
+
+```bash
+npm run db:push
+```
+
+Drizzle compares:
+
+```text
+Current Database
+vs
+Current Drizzle Schema
+```
+
+and generates the SQL needed to make the database match the schema.
+
+If everything is already synchronized, running it again should report that there are no changes.
+
+### Drizzle Studio
+
+After pushing the schema, we can inspect the database visually:
+
+```bash
+npm run db:studio
+```
+
+Drizzle Studio opens a browser-based database explorer where we can:
+
+```text
+view tables
+inspect rows
+add or edit data
+run queries
+inspect the schema
+```
+
+This is useful for confirming that the tables were created correctly and for exploring development data.
+
+### Typical Development Workflow
+
+```text
+Change schema.ts
+      ↓
+npm run db:push
+      ↓
+npm run db:studio
+      ↓
+Inspect the database
+```
+
+For production:
+
+```text
+Change schema.ts
+      ↓
+npm run db:generate
+      ↓
+Review migration
+      ↓
+npm run db:migrate
+```
