@@ -1689,3 +1689,387 @@ Review migration
       ↓
 npm run db:migrate
 ```
+
+## 5.10 - Database Seeding
+
+A **seed script** populates the database with known data so we can develop, test, and inspect the application without creating everything manually.
+
+Seed data is often fake, but it can also be curated test data or imported data.
+
+```text
+Empty / existing development DB
+            ↓
+         seed()
+            ↓
+   predictable test data
+```
+
+A development seed is useful when we want the database to return to the same known state every time.
+
+### Seed Script
+
+```ts
+import { pathToFileURL } from "url";
+
+import { db } from "./connection.ts";
+import { users, habits, entries, tags, habitTags } from "./schema.ts";
+
+const seed = async () => {
+  console.log("🌱 Starting database seed...");
+
+  try {
+    console.log("Clearing existing data...");
+
+    await db.delete(entries);
+    await db.delete(habitTags);
+    await db.delete(habits);
+    await db.delete(tags);
+    await db.delete(users);
+
+    console.log("Creating demo users...");
+
+    const [demoUser] = await db
+      .insert(users)
+      .values({
+        email: "demo@app.com",
+        password: "password",
+        firstName: "demo",
+        lastName: "person",
+        username: "demo",
+      })
+      .returning();
+
+    console.log("Creating tags...");
+
+    const [healthTag] = await db
+      .insert(tags)
+      .values({
+        name: "Health",
+        color: "#f0f0f0",
+      })
+      .returning();
+
+    const [exerciseHabit] = await db
+      .insert(habits)
+      .values({
+        userId: demoUser.id,
+        name: "Exercise",
+        description: "Daily workout",
+        frequency: "daily",
+        targetCount: 1,
+      })
+      .returning();
+
+    await db.insert(habitTags).values({
+      habitId: exerciseHabit.id,
+      tagId: healthTag.id,
+    });
+
+    console.log("Adding completion entries...");
+
+    const today = new Date();
+    today.setHours(12, 0, 0, 0);
+
+    for (let i = 0; i < 7; i++) {
+      const date = new Date(today);
+      date.setDate(date.getDate() - i);
+
+      await db.insert(entries).values({
+        habitId: exerciseHabit.id,
+        completionDate: date,
+      });
+    }
+
+    console.log("✅ DB seeded successfully");
+    console.log("User credentials:");
+    console.log(`email: ${demoUser.email}`);
+    console.log(`username: ${demoUser.username}`);
+    console.log(`password: ${demoUser.password}`);
+  } catch (e) {
+    console.error("❌ seed failed", e);
+    process.exit(1);
+  }
+};
+
+if (import.meta.url === pathToFileURL(process.argv[1]).href) {
+  seed()
+    .then(() => process.exit(0))
+    .catch(() => process.exit(1));
+}
+
+export default seed;
+```
+
+### Clearing Existing Data
+
+This seed first removes existing development data:
+
+```ts
+await db.delete(entries);
+await db.delete(habitTags);
+await db.delete(habits);
+await db.delete(tags);
+await db.delete(users);
+```
+
+Without a `where()`, each command deletes every row from that table. The tables themselves are not removed.
+
+The order matters because of Foreign Keys:
+
+```text
+users
+  ↓
+habits
+  ├──→ entries
+  └──→ habitTags ←── tags
+```
+
+We delete from the most dependent tables first:
+
+```text
+entries
+habitTags
+habits
+tags
+users
+```
+
+This avoids Foreign Key conflicts.
+
+Our schema also uses cascading deletes, so some explicit deletes may be redundant, but keeping the order explicit makes the seed easy to understand and predictable.
+
+> This destructive style is appropriate for a development seed. It should not be run against a production database.
+
+### Inserting and Returning Data
+
+To create a user:
+
+```ts
+const [demoUser] = await db
+  .insert(users)
+  .values({
+    email: "demo@app.com",
+    password: "password",
+    username: "demo",
+  })
+  .returning();
+```
+
+`insert()` selects the table, `values()` provides the new row, and `returning()` returns the inserted row instead of only operation metadata.
+
+The result is an array, so:
+
+```ts
+const [demoUser] = ...
+```
+
+uses **array destructuring** to get the first returned row.
+
+It is equivalent to:
+
+```ts
+const result = await db.insert(users).values(...).returning()
+const demoUser = result[0]
+```
+
+We need the returned user because later records depend on:
+
+```ts
+demoUser.id;
+```
+
+### Creating Relationships
+
+The seed creates records in dependency order.
+
+First the user, then a habit belonging to that user:
+
+```ts
+userId: demoUser.id;
+```
+
+Then it creates a tag and connects the habit and tag through the junction table:
+
+```ts
+await db.insert(habitTags).values({
+  habitId: exerciseHabit.id,
+  tagId: healthTag.id,
+});
+```
+
+```text
+Exercise Habit
+      │
+      ▼
+  habitTags
+      ▲
+      │
+ Health Tag
+```
+
+We do not use `.returning()` here because we only need the relationship to exist.
+
+### Creating Completion Entries
+
+The seed simulates one week of completed habits:
+
+```ts
+const today = new Date();
+today.setHours(12, 0, 0, 0);
+
+for (let i = 0; i < 7; i++) {
+  const date = new Date(today);
+  date.setDate(date.getDate() - i);
+
+  await db.insert(entries).values({
+    habitId: exerciseHabit.id,
+    completionDate: date,
+  });
+}
+```
+
+The loop runs seven times:
+
+```text
+i = 0 → today
+i = 1 → yesterday
+i = 2 → 2 days ago
+...
+i = 6 → 6 days ago
+```
+
+Each iteration creates a new `entry` connected to the same habit.
+
+`new Date(today)` creates a copy so the original `today` value is not modified by each iteration.
+
+### Running the File Directly
+
+The final block checks whether `seed.ts` was executed directly from the terminal:
+
+```ts
+if (import.meta.url === pathToFileURL(process.argv[1]).href) {
+  seed()
+    .then(() => process.exit(0))
+    .catch(() => process.exit(1));
+}
+```
+
+`import.meta.url` identifies the current file.
+
+`process.argv[1]` contains the path of the file Node was asked to execute.
+
+`pathToFileURL()` converts that path into the same `file://` URL format used by `import.meta.url`.
+
+So:
+
+```text
+current file === file executed by Node
+            ↓
+        run seed()
+```
+
+This keeps the script flexible:
+
+```text
+Run directly
+→ seed executes automatically
+
+Import from another file
+→ seed is exported but does not execute automatically
+```
+
+### Seed Script Best Practices
+
+A useful seed script should be:
+
+1. **Idempotent** — safe to run repeatedly and produce a predictable result.
+2. **Clear existing development data** when the goal is a full reset.
+3. **Respect Foreign Keys** by deleting in reverse dependency order.
+4. **Create relationships**, including junction-table records.
+5. **Use realistic dates** so time-based features can be tested.
+6. **Include useful edge cases** when needed, such as empty or large datasets.
+7. **Print test credentials** when a seeded user is meant for login testing.
+
+A development seed often follows:
+
+```text
+Clear old data
+      ↓
+Create parent records
+      ↓
+Create dependent records
+      ↓
+Create relationships
+      ↓
+Create realistic test data
+```
+
+### Production Considerations
+
+The seed itself is mainly a development tool, but the database connection used by the application also needs production safeguards:
+
+```text
+Connection Limits
+→ configure pools according to database/server capacity
+
+Health Checks
+→ monitor database and pool health
+
+Graceful Shutdown
+→ close pools when the application exits
+
+SSL
+→ use secure database connections
+
+Connection Retry
+→ handle temporary failures
+
+Monitoring
+→ track pool usage and connection metrics
+```
+
+A destructive development seed should never be pointed at the production database.
+
+### Run and Verify
+
+Run the seed:
+
+```bash
+npm run db:seed
+```
+
+Then inspect the result with Drizzle Studio:
+
+```bash
+npm run db:studio
+```
+
+### Key Idea
+
+```text
+Seed script
+→ creates predictable development data
+
+delete()
+→ clears previous rows
+
+insert().values()
+→ creates records
+
+returning()
+→ returns inserted rows
+
+[demoUser]
+→ gets the first returned row with array destructuring
+
+Foreign Keys
+→ determine insertion/deletion order
+
+habitTags
+→ creates the many-to-many relationship
+
+for loop
+→ generates realistic historical entries
+```
+
+A seed script gives the application a repeatable database state that is easy to test, inspect, and recreate.
