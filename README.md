@@ -4,8 +4,6 @@
 
 Authentication and authorization are related, but they solve different problems.
 
-Scott's main goal in this lesson was to clarify the concepts first, before implementing authentication in code.
-
 ### Identification vs Authentication vs Authorization
 
 Think of them as three separate questions:
@@ -68,8 +66,6 @@ Authorization determines what you are allowed to do inside it.
 
 ### Common Authentication Strategies
 
-Scott focused mainly on three approaches:
-
 1. Sessions
 2. JWTs
 3. API Keys
@@ -113,13 +109,13 @@ Because the server controls the session state, it can:
 - log a user out from all devices
 - react to suspicious activity
 
-Scott highlighted this as especially useful for large products with multiple clients, such as web, mobile, and TV applications.
+This is especially useful for large products with multiple clients, such as web, mobile, and TV applications.
 
 #### Trade-off
 
 Sessions provide more control, but they also require more infrastructure because the server must store and manage session state.
 
-> Scott's point: in an ideal scenario, sessions can provide excellent control, but they are usually more difficult to manage.
+> In an ideal scenario, sessions can provide excellent control, but they are usually more difficult to manage.
 
 ### 2. JWT Authentication
 
@@ -164,7 +160,7 @@ A JWT is harder to revoke immediately because the server normally does not keep 
 
 If a valid token is leaked, it may remain usable until it expires unless extra revocation infrastructure is added.
 
-Scott considers JWTs very common today, especially because of single-page applications, but **not automatically the best option for every system**.
+JWTs are very common today, especially because of single-page applications, but **not automatically the best option for every system**.
 
 ### 3. API Keys
 
@@ -209,8 +205,6 @@ There is no single authentication strategy that is always correct.
 | Third-party / public API                              | **API Key**   |
 | Delegated access to another service                   | **OAuth**     |
 
-Scott's main idea was:
-
 > **Choose the authentication strategy based on what the product needs to control.**
 
 For example, a service with web, mobile, and TV clients may benefit from sessions because the server can track and invalidate each login separately.
@@ -249,3 +243,174 @@ A useful HTTP distinction:
 Always authenticate before checking authorization.
 
 > The course documentation contains more complete examples for authentication flows, authorization patterns, middleware, status codes, and security best practices: https://api-design-with-node-v5.super.site/6-authentication-and-authorization
+
+## 6.2 - User Registration Workflow
+
+User signup mainly covers **identification** and **authentication**.
+
+At this point, the goal is not to build a full authorization system with roles and permissions. The focus is creating a user securely and preparing them to access the API.
+
+### Registration Flow
+
+```text
+Validate input
+    ↓
+Enforce unique fields
+    ↓
+Hash password
+    ↓
+Create user
+    ↓
+Generate JWT
+    ↓
+Return token
+```
+
+The complete flow is:
+
+1. **Validate input**
+2. **Ensure unique fields are not duplicated**
+3. **Hash the password**
+4. **Create the user in the database**
+5. **Generate a JWT**
+6. Optionally send something like an email verification later
+
+Generating the token immediately after registration effectively **logs the user in automatically**.
+
+Without it, the user would have to:
+
+```text
+Sign up → Go to login → Enter credentials again → Receive token
+```
+
+Unnecessary friction when the application can authenticate the user immediately after signup.
+
+### 1. Validate the Input
+
+The database schema already tells us which fields are required.
+
+For example, fields marked as:
+
+```text
+NOT NULL + no default
+```
+
+must be provided when creating the user.
+
+Validation should happen before attempting to create the database record.
+
+```text
+Request data
+    ↓
+Validate required fields
+    ↓
+Create user
+```
+
+### 2. Let the Database Enforce Uniqueness
+
+Fields such as an email or username usually need to be unique.
+
+This should be enforced by the **database**, using a unique constraint/index.
+
+```ts
+email: varchar("email", { length: 255 }).notNull().unique();
+```
+
+Avoid relying on a separate query like:
+
+```ts
+// Avoid using this as the uniqueness guarantee
+const existingUser = await findUserByEmail(email);
+```
+
+The database should remain the final authority for uniqueness.
+
+```text
+INSERT user
+    ↓
+Database checks UNIQUE constraint
+    ↓
+Success or conflict
+```
+
+This is both safer and more scalable than treating an application-level lookup as the guarantee.
+
+### 3. Never Store Plain-Text Passwords
+
+A password should **never** be stored directly in the database.
+
+```text
+❌ MyPassword123!
+
+✅ $2b$12$N9qo8uL...
+```
+
+If the database is compromised, plain-text passwords immediately expose user credentials.
+
+Password hashing reduces this risk because the stored value is the **hash**, not the original password.
+
+```text
+Password
+   ↓
+Hashing algorithm
+   ↓
+Stored hash
+```
+
+The application later verifies a login attempt against that stored hash instead of recovering the original password.
+
+### Bcrypt: The Gold Standard
+
+The strategy used in the course is **bcrypt**, an algorithm designed specifically for password hashing.
+
+At a high level:
+
+```text
+Password
+   +
+Random Salt
+   ↓
+Bcrypt
+   ↓
+Repeated computation
+   ↓
+Password Hash
+```
+
+The **salt** adds random data before hashing, helping prevent identical passwords from producing identical stored hashes.
+
+A bcrypt hash also contains information about how it was generated, including the algorithm version, cost factor, salt, and resulting hash.
+
+Example:
+
+```text
+$2b$12$N9qo8uLOickgx2ZMRZoMye...
+```
+
+Conceptually:
+
+```text
+$2b$  → bcrypt version
+12    → cost factor
+...   → salt + password hash
+```
+
+### Cost Factor
+
+Bcrypt intentionally performs repeated computation.
+
+For example, a cost factor of `12` corresponds to roughly:
+
+```text
+2^12 = 4,096 iterations
+```
+
+The goal is to make password hashing:
+
+- expensive enough to slow brute-force attacks
+- fast enough for legitimate signup and login requests
+
+The main point is not to deeply study the cryptography here, but to understand **why bcrypt exists and what role salt + cost play**.
+
+> Note: With bcrypt specifically, a random salt means the same password can produce different stored hashes. Bcrypt can still verify the password later because the salt and cost information are encoded into the stored hash.
