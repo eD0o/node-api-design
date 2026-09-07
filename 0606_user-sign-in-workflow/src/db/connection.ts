@@ -19,4 +19,5 @@ if (isProd()) {
 }
 
 export const db = drizzle({ client, schema })
+
 export default db

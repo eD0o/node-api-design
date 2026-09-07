@@ -1,16 +1,27 @@
-import { pgTable, uuid, varchar, text, timestamp, boolean, integer } from 'drizzle-orm/pg-core';
-import { relations } from 'drizzle-orm';
-import { createInsertSchema, createSelectSchema } from 'drizzle-zod';
+import {
+  pgTable,
+  uuid,
+  varchar,
+  text,
+  timestamp,
+  boolean,
+  integer,
+} from 'drizzle-orm/pg-core'
+import { relations } from 'drizzle-orm'
+import { createInsertSchema, createSelectSchema } from 'drizzle-zod'
 
 export const users = pgTable('users', {
   id: uuid('id').primaryKey().defaultRandom(),
   email: varchar('email', { length: 255 }).notNull().unique(),
   username: varchar('username', { length: 50 }).notNull().unique(),
-  password: varchar('password', { length: 255 }).notNull(),
+  password: varchar('password', {
+    length: 255,
+  }).notNull(),
+
   firstName: varchar('first_name', { length: 50 }),
   lastName: varchar('last_name', { length: 50 }),
   createdAt: timestamp('created_at').defaultNow().notNull(),
-  updatedAt: timestamp('updated_at').defaultNow().notNull()
+  updateAt: timestamp('updated_at').defaultNow().notNull(),
 })
 
 export const habits = pgTable('habits', {
@@ -29,7 +40,6 @@ export const habits = pgTable('habits', {
 
 export const entries = pgTable('entries', {
   id: uuid('id').primaryKey().defaultRandom(),
-
   habitId: uuid('habit_id')
     .references(() => habits.id, {
       onDelete: 'cascade',
@@ -64,8 +74,7 @@ export const habitTags = pgTable('habitTags', {
   createdAt: timestamp('created_at').defaultNow().notNull(),
 })
 
-// Relations
-export const usersRelations = relations(users, ({ many }) => ({
+export const userRelations = relations(users, ({ many }) => ({
   habits: many(habits),
 }))
 
@@ -78,7 +87,7 @@ export const habitsRelations = relations(habits, ({ one, many }) => ({
   habitTags: many(habitTags),
 }))
 
-export const entriesRelations = relations(entries, ({ one }) => ({
+export const extriesRelations = relations(entries, ({ one }) => ({
   habit: one(habits, {
     fields: [entries.habitId],
     references: [habits.id],
@@ -101,7 +110,7 @@ export const habitTagsRelations = relations(habitTags, ({ one }) => ({
 }))
 
 export type User = typeof users.$inferSelect
-export type NewUser = typeof users.$inferSelect
+export type NewUser = typeof users.$inferInsert
 export type Habit = typeof habits.$inferSelect
 export type Entry = typeof entries.$inferSelect
 export type Tag = typeof tags.$inferSelect

@@ -1,4 +1,4 @@
-import { Router } from "express";
+import { Router } from 'express'
 
 const router = Router()
 
@@ -11,7 +11,7 @@ router.get('/:id', (req, res) => {
 })
 
 router.put('/:id', (req, res) => {
-  res.json({ message: 'user updated' }).status(201)
+  res.json({ message: 'user updated' })
 })
 
 router.delete('/:id', (req, res) => {
