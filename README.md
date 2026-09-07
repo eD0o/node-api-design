@@ -687,3 +687,246 @@ Refresh token is validated
         ↓
 New access token is generated
 ```
+
+## 6.6 - User Sign-In Workflow
+
+Sign-in is similar to registration, but instead of creating a user, the API must **verify existing credentials**.
+
+The basic flow is:
+
+```none
+Email + Password
+      ↓
+Find user by email
+      ↓
+Compare password with stored hash
+      ↓
+Generate JWT
+      ↓
+Return authenticated user + token
+```
+
+### Main steps
+
+1. Receive the user's `email` and `password`.
+2. Find the user in the database.
+3. If the user does not exist, reject the login.
+4. Compare the plaintext password with the stored bcrypt hash.
+5. If the passwords do not match, reject the login.
+6. Generate a JWT.
+7. Return the user and token.
+
+For security, both an unknown email and an incorrect password can return the same generic message:
+
+```json
+{
+  "error": "Invalid credentials"
+}
+```
+
+This avoids revealing which part of the login attempt was incorrect.
+
+### Password Verification
+
+During signup, bcrypt stores a **hash**, not the original password.
+
+During login:
+
+```ts
+bcrypt.compare(password, hashedPassword);
+```
+
+bcrypt uses the information stored inside the hash to verify whether the provided password matches.
+
+### Salt
+
+bcrypt adds a unique **salt** when hashing passwords.
+
+Because of this, two users with the same password can still have completely different hashes:
+
+```none
+same password + different salt
+            ↓
+      different hashes
+```
+
+This makes attacks against groups of identical passwords more difficult.
+
+> You normally do not need to understand the internal structure of a bcrypt hash to use bcrypt correctly.
+
+## 6.7 - Sign-In Controller
+
+The login controller handles:
+
+```http
+POST /api/auth/login
+```
+
+It receives the credentials, verifies them, and returns a JWT when authentication succeeds.
+
+### Password comparison helper
+
+Keeping bcrypt logic in a helper makes it easier to reuse and test.
+
+```ts
+// src/utils/password.ts
+
+export const comparePasswords = async (
+  password: string,
+  hashedPassword: string,
+) => {
+  return bcrypt.compare(password, hashedPassword);
+};
+```
+
+### Find the user
+
+Because emails are unique, we only need the first matching user:
+
+```ts
+const user = await db.query.users.findFirst({
+  where: eq(users.email, email),
+});
+```
+
+Another possible Drizzle approach is:
+
+```ts
+const [user] = await db.select().from(users).where(eq(users.email, email));
+```
+
+The difference is that `findFirst()` returns one record directly, while `select()` returns an array.
+
+### Login controller
+
+```ts
+export const login = async (req: Request, res: Response) => {
+  try {
+    const { email, password } = req.body;
+
+    const user = await db.query.users.findFirst({
+      where: eq(users.email, email),
+    });
+
+    if (!user) {
+      return res.status(401).json({
+        error: "Invalid credentials",
+      });
+    }
+
+    const validPassword = await comparePasswords(password, user.password);
+
+    if (!validPassword) {
+      return res.status(401).json({
+        error: "Invalid credentials",
+      });
+    }
+
+    const token = await generateToken({
+      id: user.id,
+      email: user.email,
+      username: user.username,
+    });
+
+    return res.status(200).json({
+      message: "Login successful",
+      user: {
+        id: user.id,
+        email: user.email,
+        username: user.username,
+        firstName: user.firstName,
+        lastName: user.lastName,
+        createdAt: user.createdAt,
+      },
+      token,
+    });
+  } catch (error) {
+    console.error("Login error:", error);
+
+    return res.status(500).json({
+      error: "Login failed",
+    });
+  }
+};
+```
+
+### Early returns
+
+A useful controller pattern is to check failure cases first:
+
+```ts
+if (!user) {
+  return ...
+}
+
+if (!validPassword) {
+  return ...
+}
+
+// continue with successful login
+```
+
+This avoids deeply nested `if` statements and keeps the controller easier to read.
+
+### Never return the password hash
+
+Unlike the registration query, `findFirst()` returns the complete user row, including the stored password hash.
+
+So avoid:
+
+```ts
+return res.json({
+  user,
+});
+```
+
+Instead, explicitly return only safe fields:
+
+```ts
+user: {
+  id: user.id,
+  email: user.email,
+  username: user.username
+}
+```
+
+### Login validation
+
+Login only requires an email and password, so it should use its own Zod schema:
+
+```ts
+const loginSchema = z.object({
+  email: z.email(),
+  password: z.string(),
+});
+```
+
+Then add it before the controller:
+
+```ts
+router.post("/login", validateBody(loginSchema), login);
+```
+
+The complete request flow becomes:
+
+```none
+POST /api/auth/login
+        ↓
+validateBody(loginSchema)
+        ↓
+Find user
+        ↓
+Compare password
+        ↓
+Generate JWT
+        ↓
+Return user + token
+```
+
+### Token responsibility
+
+At this point, the API only **generates** JWTs.
+
+After signup or login, the client is responsible for storing the token and later sending it with requests to protected routes.
+
+JWT verification and route protection come next.
