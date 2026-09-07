@@ -416,3 +416,274 @@ The main point is not to deeply study the cryptography here, but to understand *
 > Note: With bcrypt specifically, a random salt means the same password can produce different stored hashes. Bcrypt can still verify the password later because the salt and cost information are encoded into the stored hash.
 
 ## 6.3 - Registration Controller
+
+A **controller** (or handler) is the function that runs when an Express route is matched.
+
+For registration:
+
+```http
+POST /api/auth/register
+```
+
+The controller can assume that previous middleware has already validated the request.
+
+### Registration flow
+
+```none
+Validate input
+    ↓
+Hash password
+    ↓
+Create user
+    ↓
+Generate JWT
+    ↓
+Return 201
+```
+
+### Password hashing
+
+Passwords should **never** be stored as plain text.
+
+A small helper keeps the hashing logic reusable:
+
+```ts
+// src/utils/password.ts
+
+import bcrypt from "bcrypt";
+import env from "../../env.ts";
+
+export const hashPassword = async (password: string): Promise<string> => {
+  return bcrypt.hash(password, env.BCRYPT_ROUNDS);
+};
+```
+
+`bcrypt` automatically uses a salt and performs multiple hashing rounds, making password cracking more expensive.
+
+### Register controller
+
+```ts
+// src/controllers/authController.ts
+
+import type { Request, Response } from "express";
+import { db } from "../db/connection.ts";
+import { users } from "../db/schema.ts";
+import { hashPassword } from "../utils/password.ts";
+import { generateToken } from "../utils/jwt.ts";
+
+export const register = async (req: Request, res: Response) => {
+  try {
+    const { email, username, password, firstName, lastName } = req.body;
+
+    const hashedPassword = await hashPassword(password);
+
+    const [newUser] = await db
+      .insert(users)
+      .values({
+        email,
+        username,
+        password: hashedPassword,
+        firstName,
+        lastName,
+      })
+      .returning({
+        id: users.id,
+        email: users.email,
+        username: users.username,
+        firstName: users.firstName,
+        lastName: users.lastName,
+        createdAt: users.createdAt,
+      });
+
+    const token = await generateToken({
+      id: newUser.id,
+      email: newUser.email,
+      username: newUser.username,
+    });
+
+    return res.status(201).json({
+      message: "User created successfully",
+      user: newUser,
+      token,
+    });
+  } catch (error) {
+    console.error("Registration error:", error);
+
+    return res.status(500).json({
+      error: "Failed to create user",
+    });
+  }
+};
+```
+
+Notice that the password is **not returned** by `.returning()`.
+
+The password hash normally only needs to be queried when authenticating a login or changing the password.
+
+### Insert vs Select types
+
+Drizzle can infer different types for reading and creating records:
+
+```ts
+type User = typeof users.$inferSelect;
+type NewUser = typeof users.$inferInsert;
+```
+
+- `$inferSelect` → represents a complete row returned from the database.
+- `$inferInsert` → represents the fields accepted when creating a row.
+
+This matters because generated fields such as `id` and timestamps do not need to come from the signup request.
+
+## 6.4 - Create a JWT
+
+A **JWT (JSON Web Token)** is a signed string used to identify an authenticated user.
+
+A payload can contain basic identifying information:
+
+```ts
+export interface JwtPayload {
+  id: string;
+  email: string;
+  username: string;
+}
+```
+
+Do **not** put sensitive information such as passwords inside a JWT.
+
+### JWT helper
+
+```ts
+// src/utils/jwt.ts
+
+import { SignJWT } from "jose";
+import { createSecretKey } from "crypto";
+import env from "../../env.ts";
+
+export const generateToken = (payload: JwtPayload): Promise<string> => {
+  const secretKey = createSecretKey(env.JWT_SECRET, "utf-8");
+
+  return new SignJWT(payload)
+    .setProtectedHeader({ alg: "HS256" })
+    .setIssuedAt()
+    .setExpirationTime(env.JWT_EXPIRES_IN || "7d")
+    .sign(secretKey);
+};
+```
+
+Important parts:
+
+- **Payload** → data that identifies the user.
+- **Secret** → used to sign and verify the token.
+- **Algorithm** → here, `HS256`.
+- **Issued time** → records when the token was created.
+- **Expiration** → limits how long it remains valid.
+
+Generating the token immediately after signup allows the user to be **automatically logged in** after registration.
+
+### Why expiration matters
+
+JWTs are usually not stored server-side.
+
+Because the server cannot simply delete an already-issued token, giving it an expiration time reduces the damage if it is leaked.
+
+## 6.5 - Validate & Test Authentication
+
+The registration route should validate the body **before** calling the controller.
+
+```ts
+// src/routes/authRoutes.ts
+
+import { Router } from "express";
+import { register } from "../controllers/authController.ts";
+import { validateBody } from "../middleware/validation.ts";
+import { insertUserSchema } from "../db/schema.ts";
+
+const router = Router();
+
+router.post("/register", validateBody(insertUserSchema), register);
+
+export default router;
+```
+
+The order matters:
+
+```none
+POST /api/auth/register
+        ↓
+validateBody(...)
+        ↓
+register controller
+```
+
+If validation fails, `register` never runs.
+
+This lets the controller safely assume required data is already present and valid.
+
+### Database validation vs application validation
+
+A schema generated from the database is useful for validating basic structure.
+
+For stricter application rules, a custom Zod schema may still be useful.
+
+Examples:
+
+```none
+email → must be a valid email
+password → minimum length / regex rules
+username → custom restrictions
+```
+
+These checks belong at the application layer rather than inside the controller.
+
+### Testing
+
+Example request:
+
+```http
+POST /api/auth/register
+Content-Type: application/json
+```
+
+```json
+{
+  "email": "user@app.com",
+  "username": "user",
+  "password": "super-secret-password"
+}
+```
+
+Successful result:
+
+```none
+Request
+   ↓
+Validation
+   ↓
+Password Hash
+   ↓
+Database Insert
+   ↓
+JWT Generation
+   ↓
+201 Created
+```
+
+The response contains:
+
+- the safe user data
+- a JWT
+- no password or password hash
+
+### Refresh tokens
+
+A **refresh token** can later be used to request a new access token when the current one expires, avoiding a forced login every time.
+
+Conceptually:
+
+```none
+Access token expires
+        ↓
+Refresh token is validated
+        ↓
+New access token is generated
+```
