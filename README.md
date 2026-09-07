@@ -414,3 +414,5 @@ The goal is to make password hashing:
 The main point is not to deeply study the cryptography here, but to understand **why bcrypt exists and what role salt + cost play**.
 
 > Note: With bcrypt specifically, a random salt means the same password can produce different stored hashes. Bcrypt can still verify the password later because the salt and cost information are encoded into the stored hash.
+
+## 6.3 - Registration Controller
