@@ -930,3 +930,358 @@ At this point, the API only **generates** JWTs.
 After signup or login, the client is responsible for storing the token and later sending it with requests to protected routes.
 
 JWT verification and route protection come next.
+
+## 6.8 - JWT Verification Utility
+
+The API already creates JWTs during signup and login.
+
+Now it needs the opposite operation: **verify a token sent by the client**.
+
+The client usually sends the JWT in the `Authorization` header using the **Bearer Token** pattern:
+
+```http
+Authorization: Bearer <token>
+```
+
+The basic flow is:
+
+```none
+Request
+   ↓
+Authorization Header
+   ↓
+Extract JWT
+   ↓
+Verify Signature + Expiration
+   ↓
+Decode Payload
+```
+
+### Verify the token
+
+The same secret used to sign the JWT must also be used to verify it.
+
+```ts
+// src/utils/jwt.ts
+
+import { jwtVerify } from "jose";
+import { createSecretKey } from "crypto";
+import env from "../../env.ts";
+
+export const verifyToken = async (token: string) => {
+  const secretKey = createSecretKey(env.JWT_SECRET, "utf-8");
+
+  const { payload } = await jwtVerify(token, secretKey);
+
+  return payload;
+};
+```
+
+Verification checks that:
+
+- the token was signed with the expected secret
+- the token is valid
+- the token has not expired
+
+If verification succeeds, the decoded payload can contain values such as:
+
+```ts
+{
+  (id, email, username);
+}
+```
+
+This payload will later be attached to the request so controllers know which user is authenticated.
+
+## 6.9 - Authentication Middleware
+
+Authentication middleware protects routes before their controllers run.
+
+Its job is to:
+
+1. Read the `Authorization` header.
+2. Extract the Bearer token.
+3. Verify the JWT.
+4. Attach the decoded user payload to `req.user`.
+5. Call `next()` when authentication succeeds.
+
+### Authenticated request type
+
+Because Express does not include `req.user` by default, we can extend its request type:
+
+```ts
+interface AuthenticatedRequest extends Request {
+  user?: JwtPayload;
+}
+```
+
+This is only for TypeScript support.
+
+### Authentication middleware
+
+```ts
+export const authenticateToken = async (
+  req: AuthenticatedRequest,
+  res: Response,
+  next: NextFunction,
+) => {
+  try {
+    const authHeader = req.headers.authorization;
+
+    const token = authHeader?.split(" ")[1];
+
+    if (!token) {
+      return res.status(401).json({
+        error: "Unauthorized",
+      });
+    }
+
+    const payload = await verifyToken(token);
+
+    req.user = payload as JwtPayload;
+
+    next();
+  } catch {
+    return res.status(403).json({
+      error: "Forbidden",
+    });
+  }
+};
+```
+
+For a header like:
+
+```http
+Authorization: Bearer abc123
+```
+
+this:
+
+```ts
+authHeader.split(" ")[1];
+```
+
+extracts:
+
+```none
+abc123
+```
+
+### Why attach the user to the request?
+
+After authentication succeeds:
+
+```ts
+req.user;
+```
+
+can be used by later controllers.
+
+Example:
+
+```ts
+const userId = req.user?.id;
+```
+
+This allows routes to fetch data that belongs specifically to the authenticated user.
+
+## 6.10 - Protected Routes
+
+Not every route should require authentication.
+
+For example:
+
+```none
+POST /auth/register
+POST /auth/login
+```
+
+must remain public, otherwise users could not create an account or log in.
+
+Routes that access private user data should be protected.
+
+Examples:
+
+```none
+/api/users
+/api/habits
+```
+
+### Router-level protection
+
+If every route inside a router requires authentication, middleware can be added once:
+
+```ts
+router.use(authenticateToken);
+```
+
+Example:
+
+```ts
+const router = Router();
+
+router.use(authenticateToken);
+
+router.get("/", getHabits);
+router.get("/:id", getHabit);
+router.post("/", createHabit);
+```
+
+Every route declared after `router.use()` must pass through the authentication middleware.
+
+Flow:
+
+```none
+Request
+   ↓
+authenticateToken
+   ↓
+Controller
+```
+
+### Route-level protection
+
+If only some routes need authentication, middleware can be added individually:
+
+```ts
+router.get("/profile", authenticateToken, getProfile);
+```
+
+### Router-level vs route-level
+
+**Router-level**
+
+```ts
+router.use(authenticateToken);
+```
+
+Best when all routes in that router are private.
+
+Benefits:
+
+- cleaner
+- consistent
+- harder to forget authentication
+
+**Route-level**
+
+```ts
+router.get("/route", authenticateToken, handler);
+```
+
+Best when public and private routes are mixed in the same router.
+
+### Route organization
+
+A useful design is to separate public authentication routes from protected API routes:
+
+```none
+/auth
+   /register
+   /login
+
+/api
+   /users
+   /habits
+```
+
+Then authentication can be applied to the protected API router without blocking signup or login.
+
+## 6.11 - Security Best Practices
+
+JWT authentication should follow a few important rules.
+
+### 1. Never log tokens
+
+JWTs are credentials.
+
+Avoid:
+
+```ts
+console.log(token);
+```
+
+Anyone with a valid token may be able to access protected resources.
+
+### 2. Use HTTPS in production
+
+Without HTTPS, tokens sent through HTTP may be intercepted.
+
+```none
+HTTP  → unsafe for credentials
+HTTPS → encrypted transport
+```
+
+### 3. Use reasonable expiration times
+
+JWTs should not live forever.
+
+```ts
+.setExpirationTime('7d')
+```
+
+Shorter expiration reduces the impact of a leaked token.
+
+Refresh tokens can be used when longer sessions are needed.
+
+### 4. Validate authentication on every request
+
+Do not assume a user is still authenticated because a previous request succeeded.
+
+```none
+Every protected request
+        ↓
+Verify JWT again
+```
+
+A token may have expired or become invalid since the previous request.
+
+### 5. Do not cache authentication state
+
+The server should remain skeptical.
+
+Do not treat a previously accepted token as permanently valid.
+
+### 6. Use the Bearer prefix correctly
+
+The expected format is:
+
+```http
+Authorization: Bearer <token>
+```
+
+Forgetting `Bearer` may prevent the middleware from extracting the token correctly.
+
+### 7. Handle async errors
+
+JWT verification is asynchronous, so failures should be handled safely:
+
+```ts
+try {
+  const payload = await verifyToken(token);
+} catch {
+  return res.status(403).json({
+    error: "Forbidden",
+  });
+}
+```
+
+This prevents authentication errors from crashing the server.
+
+### Authenticated controllers
+
+After authentication middleware succeeds, protected controllers can safely identify the current user:
+
+```ts
+const userId = req.user?.id;
+```
+
+This makes it possible to query resources that belong specifically to that user:
+
+```none
+Authenticated User
+       ↓
+req.user.id
+       ↓
+User's Habits / Entries / Profile
+```
