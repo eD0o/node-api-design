@@ -540,3 +540,5 @@ Multiple writes that represent ONE action
 ```
 
 A transaction protects the database from being left in a **partially updated state**.
+
+## 7.3 - Get All Habits Controller
