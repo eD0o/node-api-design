@@ -75,3 +75,52 @@ export const getUserHabits = async (
     res.status(500).json({ error: 'Failed to fetch habits' })
   }
 }
+
+export const updateHabit = async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const { id } = req.params
+    const userId = req.user!.id
+    const { tagIds, ...updates } = req.body
+
+    const result = await db.transaction(async (tx) => {
+      // Update the habit
+      const [updatedHabit] = await tx
+        .update(habits)
+        .set({ ...updates, updatedAt: new Date() })
+        .where(and(eq(habits.id, id), eq(habits.userId, userId)))
+        .returning()
+
+      if (!updatedHabit) {
+        throw new Error('Habit not found')
+      }
+
+      // If tagIds are provided, update the associations
+      if (tagIds !== undefined) {
+        // Remove existing tags
+        await tx.delete(habitTags).where(eq(habitTags.habitId, id))
+
+        // Add new tags
+        if (tagIds.length > 0) {
+          const habitTagValues = tagIds.map((tagId: string) => ({
+            habitId: id,
+            tagId,
+          }))
+          await tx.insert(habitTags).values(habitTagValues)
+        }
+      }
+
+      return updatedHabit
+    })
+
+    res.json({
+      message: 'Habit updated successfully',
+      habit: result,
+    })
+  } catch (error: any) {
+    if (error.message === 'Habit not found') {
+      return res.status(404).json({ error: 'Habit not found' })
+    }
+    console.error('Update habit error:', error)
+    res.status(500).json({ error: 'Failed to update habit' })
+  }
+}

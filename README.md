@@ -651,3 +651,4 @@ There is no body validation because this request sends no body, params, or query
 A GET route could still use `validateQuery()` or `validateParams()` if those inputs existed.
 
 ## 7.4 - Update Habit Controller
+
