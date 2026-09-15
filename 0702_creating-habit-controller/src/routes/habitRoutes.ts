@@ -5,6 +5,10 @@ import { authenticateToken } from '../middleware/auth.ts'
 
 const createHabitSchema = z.object({
   name: z.string(),
+  description: z.string().optional(),
+  frequency: z.string(),
+  targetCount: z.string(),
+  tagIds: z.array(z.string()).optional()
 })
 
 const completeParamsSchema = z.object({
