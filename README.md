@@ -542,3 +542,110 @@ Multiple writes that represent ONE action
 A transaction protects the database from being left in a **partially updated state**.
 
 ## 7.3 - Get All Habits Controller
+
+Gets all habits that belong to the authenticated user.
+
+```ts
+export const getUserHabits = async (
+  req: AuthenticatedRequest,
+  res: Response,
+) => {
+  try {
+    const userId = req.user!.id;
+
+    const userHabitsWithTags = await db.query.habits.findMany({
+      where: eq(habits.userId, userId),
+      with: {
+        habitTags: {
+          with: {
+            tag: true,
+          },
+        },
+      },
+      orderBy: [desc(habits.createdAt)],
+    });
+
+    const habitsWithTags = userHabitsWithTags.map((habit) => ({
+      ...habit,
+      tags: habit.habitTags.map((ht) => ht.tag),
+      habitTags: undefined,
+    }));
+
+    res.json({
+      habits: habitsWithTags,
+    });
+  } catch (error) {
+    console.error("Get habits error:", error);
+    res.status(500).json({ error: "Failed to fetch habits" });
+  }
+};
+```
+
+### `where`
+
+```ts
+where: eq(habits.userId, userId);
+```
+
+Returns only habits owned by the authenticated user.
+
+### `with`
+
+```ts
+with: {
+  habitTags: {
+    with: {
+      tag: true,
+    },
+  },
+}
+```
+
+`with` loads related data using the relations defined in Drizzle:
+
+```none
+Habit → habitTags → Tag
+```
+
+`tag: true` means: **include the related tag object**.
+
+### `orderBy`
+
+```ts
+orderBy: [desc(habits.createdAt)];
+```
+
+Returns the newest habits first.
+
+### Flattening the Result
+
+Drizzle initially returns:
+
+```none
+Habit
+ └─ habitTags[]
+      └─ tag
+```
+
+The `map()` transforms it into:
+
+```none
+Habit
+ └─ tags[]
+```
+
+```ts
+tags: habit.habitTags.map((ht) => ht.tag);
+```
+
+`habitTags: undefined` removes the intermediate relation from the JSON response.
+
+### Route
+
+```ts
+router.get("/", getUserHabits);
+```
+
+There is no body validation because this request sends no body, params, or query values.
+
+A GET route could still use `validateQuery()` or `validateParams()` if those inputs existed.
