@@ -309,3 +309,239 @@ Controllers / Middleware
 This keeps error formatting, logging, and reporting consistent across the application.
 
 ## 8.2 - Error Handler Middleware
+
+A custom error handler gives the API **one central place** to format errors, log them, and decide what should be returned to the client.
+
+In Express, an error-handling middleware has **4 arguments**:
+
+```ts
+(error, req, res, next);
+```
+
+### APIError + Global Error Handler
+
+```ts
+// src/middleware/errorHandler.ts
+
+import type { Request, Response, NextFunction } from "express";
+
+import env from "../../../env.ts";
+
+export class APIError extends Error {
+  constructor(
+    message: string,
+    public status: number = 500,
+  ) {
+    super(message);
+    this.name = "APIError";
+  }
+}
+
+export const errorHandler = (
+  error: Error,
+  req: Request,
+  res: Response,
+  next: NextFunction,
+) => {
+  if (res.headersSent) {
+    return next(error);
+  }
+
+  console.error(error.stack);
+
+  const status = error instanceof APIError ? error.status : 500;
+
+  const message =
+    error instanceof APIError ? error.message : "Internal Server Error";
+
+  res.status(status).json({
+    error: message,
+
+    ...(env.APP_STAGE === "dev" && {
+      stack: error.stack,
+      details: error.message,
+    }),
+  });
+};
+```
+
+`APIError` extends the normal JavaScript `Error` and adds an HTTP status code.
+
+Example:
+
+```ts
+throw new APIError("Habit not found", 404);
+```
+
+If a regular unknown error reaches the handler:
+
+```ts
+throw new Error("Database error");
+```
+
+it falls back to:
+
+```http
+500 Internal Server Error
+```
+
+### **Why `error: Error` instead of `error: APIError`?**
+
+The global handler may receive errors from:
+
+- your own application
+- the database
+- third-party libraries
+- Express itself
+
+So the handler should accept any normal `Error`:
+
+```ts
+error: Error;
+```
+
+Then:
+
+```ts
+error instanceof APIError;
+```
+
+checks whether it is one of your custom API errors.
+
+```none
+APIError
+→ use custom status + message
+
+Unknown Error
+→ 500 Internal Server Error
+```
+
+### **`res.headersSent`**
+
+```ts
+if (res.headersSent) {
+  return next(error);
+}
+```
+
+If the response has already started, the custom handler should not try to send another response.
+
+Instead, it delegates the error back to Express.
+
+### **Register It Last**
+
+The error handler should be registered **after routes and other middleware**:
+
+```ts
+app.use("/api/auth", authRoutes);
+app.use("/api/habits", habitRoutes);
+app.use("/api/users", userRoutes);
+
+app.use(errorHandler);
+```
+
+Conceptually:
+
+```none
+Request
+   ↓
+Routes / Middleware
+   ↓
+Error
+   ↓
+errorHandler
+```
+
+### **Using Custom Errors**
+
+Instead of repeating response logic:
+
+```ts
+if (!habit) {
+  return res.status(404).json({
+    error: "Habit not found",
+  });
+}
+```
+
+you can throw:
+
+```ts
+if (!habit) {
+  throw new APIError("Habit not found", 404);
+}
+```
+
+Then the global handler formats the response.
+
+```none
+throw new APIError(...)
+        ↓
+Express Error Pipeline
+        ↓
+errorHandler
+        ↓
+status + JSON response
+```
+
+### **Express 5 Note**
+
+In Express 5, normal `async` controllers do not need a `try/catch` whose only purpose is forwarding an error.
+
+```ts
+export const getHabit = async (req, res) => {
+  const habit = await findHabit(req.params.id);
+
+  if (!habit) {
+    throw new APIError("Habit not found", 404);
+  }
+
+  res.json({ habit });
+};
+```
+
+If the async function throws or its Promise rejects, Express automatically forwards the error to the error-handling pipeline.
+
+`next(error)` is still useful for callback-style APIs or async work outside the returned Promise chain.
+
+### **Development vs Production**
+
+In development, extra details can help debugging:
+
+```ts
+...(env.APP_STAGE === 'dev' && {
+  stack: error.stack,
+  details: error.message,
+})
+```
+
+In production, avoid exposing stack traces or internal implementation details.
+
+```none
+Development → console / stack trace
+Production  → logger / monitoring service
+```
+
+### **Why Use It?**
+
+Without centralized handling:
+
+```none
+Controller A → status + JSON + log
+Controller B → status + JSON + log
+Controller C → status + JSON + log
+```
+
+With a global error handler:
+
+```none
+Controllers
+    ↓
+throw error
+    ↓
+Error Handler
+    ↓
+status + JSON + logging
+```
+
+This keeps error responses consistent and reduces duplicated code.
