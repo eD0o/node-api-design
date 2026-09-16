@@ -307,3 +307,5 @@ Controllers / Middleware
 ```
 
 This keeps error formatting, logging, and reporting consistent across the application.
+
+## 8.2 - Error Handler Middleware
